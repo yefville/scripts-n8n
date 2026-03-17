@@ -140,3 +140,4 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         console.error("FLOW ERROR:", err.message);
         finish({ success: false, error: err.message }, 1);
     }
+   })();
