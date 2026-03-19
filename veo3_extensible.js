@@ -10,17 +10,14 @@ function finish(data, exitCode = 0) {
     if (_stopped) return;
     _stopped = true;
 
-    // IMPORTANTE: Imprimimos el JSON para que n8n capture la salida y finalice el nodo
     console.log(JSON.stringify(data));
 
     try {
         if (_browser) {
-            // Cerramos todo rápido para evitar que n8n se quede colgado
             _browser.close().catch(() => {});
         }
     } catch (e) { }
 
-    // Matamos el proceso para asegurar que n8n vea el fin de la ejecución
     process.exit(exitCode);
 }
 
@@ -58,7 +55,6 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
 (async () => {
     try {
         const cadenaPromptsUnidos = process.argv[2] || '';
-        // Si pasas un archivo, el script tomará la carpeta donde está ese archivo
         let baseFolder = process.argv[3] || '/home/node/shared/';
         if (baseFolder.endsWith('.mp4')) baseFolder = path.dirname(baseFolder);
 
@@ -116,8 +112,22 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         // --- PASO 4: BUCLE DE EXTENSIONES ---
         for (let i = 0; i < promptsExtender.length; i++) {
             console.error(`FLOW: Extendiendo escena ${i + 1}...`);
+
+            // ✅ ASEGURAR ESTADO
+            await asegurarEstado(page, 'Video', ['Vertical', 'Veo 3.1 - Fast']);
+
+            // ✅ NUEVO: FORZAR LOWER PRIORITY EN CADA ITERACIÓN
+            const modelSelectorLoop = page.locator('button').filter({ hasText: /Veo 3\.1/ }).last();
+            if (await modelSelectorLoop.isVisible()) {
+                await modelSelectorLoop.click();
+                await page.waitForTimeout(1000);
+                await page.getByRole('menuitem').filter({ hasText: /Lower Priority/i }).click();
+                await page.waitForTimeout(1500);
+            }
+
             const currentVids = await page.evaluate(() => Array.from(document.querySelectorAll('video')).map(v => v.src));
             const extendEditor = page.locator('div[data-slate-editor="true"]').last();
+
             await extendEditor.click();
             await page.keyboard.press('Control+A');
             await page.keyboard.press('Backspace');
@@ -128,7 +138,16 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
                 const vids = Array.from(document.querySelectorAll('video'));
                 return vids.some(v => v.src && !prev.includes(v.src));
             }, currentVids, { timeout: 400000 });
+
+            // ✅ ESPERA + RECARGA
             await page.waitForTimeout(3000);
+            console.error("FLOW: Recargando página...");
+            await page.reload();
+
+            await page.waitForTimeout(3000);
+
+            // ✅ RECONFIGURAR DESPUÉS DE RECARGA
+            await asegurarEstado(page, 'Video', ['Vertical', 'Veo 3.1 - Fast']);
         }
 
         // --- PASO 5: DESCARGAR TODAS LAS PIEZAS ---
@@ -167,7 +186,6 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         console.error("FLOW: Finalizado. Cerrando editor.");
         await page.getByRole('button', { name: /listo|done/i }).click().catch(() => page.keyboard.press('Escape'));
 
-        // FINALIZAR: Esto enviará el éxito a n8n
         finish({
             success: true,
             files: downloadedFiles,
