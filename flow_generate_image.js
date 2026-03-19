@@ -14,40 +14,30 @@ function finish(data, exitCode = 0) {
 }
 
 /* =============================================
-   FUNCIONES DE INTERFAZ (EL CLIC QUE FUNCIONA)
+   FUNCIÓN ASEGURAR ESTADO (LA QUE SÍ FUNCIONA)
    ============================================= */
 const asegurarEstado = async (page, modoDeseado, opciones) => {
-    console.error(`FLOW: Asegurando panel para ${modoDeseado}...`);
+    console.error(`FLOW: Cambiando a ${modoDeseado}`);
 
-    // 1. Abrir el panel (toque inferior derecho)
-    const btnPanel = page.locator('button[id^="radix-"][aria-haspopup="menu"]').last();
-    await btnPanel.click();
-    await page.waitForTimeout(1500);
+    const btnPanel = page.locator('button[aria-haspopup="menu"]').last();
+    await btnPanel.click({ force: true });
+    await page.waitForTimeout(1000);
 
-    // 2. Clic en la pestaña (Imagen o Video) - Método original
-    await page.evaluate((m) => {
-        const tabs = Array.from(document.querySelectorAll('button[role="tab"]'));
-        const target = tabs.find(t => t.innerText.includes(m));
-        if (target) {
-            target.click();
-            ['mousedown', 'mouseup', 'click'].forEach(e => target.dispatchEvent(new MouseEvent(e, { bubbles: true })));
-        }
-    }, modoDeseado);
-    await page.waitForTimeout(1500);
+    const tab = page.locator('button[role="tab"]', { hasText: modoDeseado }).first();
+    await tab.click({ force: true });
 
-    // 3. Seleccionar opciones internas
+    await page.waitForTimeout(800);
+
     for (const opt of opciones) {
-        await page.evaluate((texto) => {
-            const tabs = Array.from(document.querySelectorAll('button[role="tab"]'));
-            const target = tabs.find(t => t.innerText.includes(texto));
-            if (target && target.getAttribute('aria-selected') !== 'true') target.click();
-        }, opt);
-        await page.waitForTimeout(700);
+        const optTab = page.locator('button[role="tab"]', { hasText: opt }).first();
+        if (await optTab.count()) {
+            await optTab.click({ force: true });
+            await page.waitForTimeout(500);
+        }
     }
 
-    // 4. Cerrar panel con Escape
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(800);
 };
 
 (async () => {
@@ -86,11 +76,15 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         console.error("FLOW: Generando imagen base (45s)...");
         await page.waitForTimeout(45000);
 
-        // --- PASO 2: CAMBIAR A MODO VIDEO (Antes de adjuntar) ---
-        // Esto asegura que el clic en video funcione porque la interfaz está limpia
+        // 🔄 RECARGA DESPUÉS DE GENERAR IMAGEN
+        console.error("FLOW: Recargando página después de generar imagen...");
+        await page.reload();
+        await page.waitForTimeout(5000);
+
+        // --- PASO 2: CAMBIAR A MODO VIDEO ---
         await asegurarEstado(page, 'Video', ['Frames', 'Vertical', 'x1']);
 
-        // --- PASO 3: ADJUNTAR LA IMAGEN GENERADA (Clic derecho) ---
+        // --- PASO 3: ADJUNTAR IMAGEN ---
         console.error("FLOW: Adjuntando imagen generada a la instrucción...");
         const imgElement = await page.evaluateHandle((old) => {
             return Array.from(document.querySelectorAll('img')).reverse().find(img => img.src.includes('getMediaUrlRedirect') && !old.includes(img.src));
@@ -99,7 +93,6 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         if (imgElement) {
             await imgElement.asElement().click({ button: 'right' });
             await page.waitForTimeout(1000);
-            // "Agregar a la instrucción" / "Añadir a la petición"
             await page.getByRole('menuitem', { name: /instrucción|petición|prompt/i }).first().click();
             await page.waitForTimeout(2500);
         } else {
@@ -134,10 +127,19 @@ const asegurarEstado = async (page, modoDeseado, opciones) => {
         }, oldVids);
 
         fs.writeFileSync(savePath, Buffer.from(videoB64, 'base64'));
+
+        // ⏳ ESPERA ANTES DE RECARGAR (NUEVO)
+        await page.waitForTimeout(3000);
+
+        // 🔄 RECARGA DESPUÉS DE DESCARGAR VIDEO
+        console.error("FLOW: Recargando página después de descargar video...");
+        await page.reload();
+        await page.waitForTimeout(5000);
+
         finish({ success: true, filePath: savePath });
 
     } catch (err) {
         console.error("FLOW ERROR:", err.message);
         finish({ success: false, error: err.message }, 1);
     }
-   })();
+})();
